@@ -287,8 +287,6 @@ class Animation(pygame.sprite.Sprite):
         """
         self.targets = [(sprite, dict())]
         for target, props in self.targets:
-            if isinstance(target, pygame.Rect):
-                logger.debug('pass "round_values=True" when using Rects')
             for name, value in self.props.items():
                 initial = self._get_value(target, name)
                 props[name] = initial, value
