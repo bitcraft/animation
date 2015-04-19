@@ -1,9 +1,10 @@
 from math import sqrt, cos, sin, pi
-import pygame
 import sys
 
-__all__ = ('Task', 'Animation', 'remove_animations_of')
+import pygame
 
+
+__all__ = ('Task', 'Animation', 'remove_animations_of')
 
 PY2 = sys.version_info[0] == 2
 string_types = None
@@ -23,7 +24,8 @@ def remove_animations_of(group, target):
     :return: None
     """
     animations = [ani for ani in group.sprites() if isinstance(ani, Animation)]
-    to_remove = [ani for ani in animations if target in ani.targets]
+    to_remove = [ani for ani in animations
+                 if target in [i[0] for i in ani.targets]]
     group.remove(*to_remove)
 
 
@@ -52,6 +54,7 @@ class Task(pygame.sprite.Sprite):
         task = Task(call_later, 2500)
         task.chain(Task(something_else))
     """
+
     def __init__(self, callback, interval=0, loops=1, args=None, kwargs=None):
         assert (callable(callback))
         assert (loops >= -1)
@@ -160,6 +163,7 @@ class Animation(pygame.sprite.Sprite):
     'round_values=True' to the constructor to avoid jitter caused
     by integer truncation.
     """
+
     def __init__(self, **kwargs):
         super(Animation, self).__init__()
         self.targets = None
@@ -246,7 +250,7 @@ class Animation(pygame.sprite.Sprite):
                 value = (a * (1. - t)) + (b * t)
 
                 if self._round_values:
-                    value = int(round(value, 0))
+                    value = int(round(value))
 
                 self._set_value(target, name, value)
 
@@ -277,15 +281,15 @@ class Animation(pygame.sprite.Sprite):
         if hasattr(self, 'callback'):
             self.callback()
 
-    def start(self, sprite):
+    def start(self, target):
         """Start the animation on a target sprite/object
 
-        Target must have the attributes that were set when
+        Targets must have the attributes that were set when
         this animation was created.
 
-        :param sprite: Any valid python object
+        :param target: Any valid python object
         """
-        self.targets = [(sprite, dict())]
+        self.targets = [(target, dict())]
         for target, props in self.targets:
             for name, value in self.props.items():
                 initial = self._get_value(target, name)
