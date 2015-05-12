@@ -4,7 +4,7 @@
 from setuptools import setup
 
 setup(name="pygame-animation",
-      version="0.0.1",
+      version="0.0.2",
       description="PyGame Animation and Tweening Library",
       author="bitcraft",
       author_email="",
@@ -20,8 +20,9 @@ setup(name="pygame-animation",
           "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
           "Natural Language :: English",
           "Programming Language :: Python :: 2.7",
+          "Programming Language :: Python :: 3.3",
           "Programming Language :: Python :: 3.4",
           "Topic :: Games/Entertainment",
           "Topic :: Software Development :: Libraries",
       ],
-)
+      )

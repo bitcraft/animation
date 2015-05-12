@@ -1,10 +1,15 @@
-from math import sqrt, cos, sin, pi
 import sys
 
 import pygame
 
+from .transitions import AnimationTransition
+
 
 __all__ = ('Task', 'Animation', 'remove_animations_of')
+
+ANIMATION_NOT_STARTED = 0
+ANIMATION_RUNNING = 1
+ANIMATION_FINISHED = 2
 
 PY2 = sys.version_info[0] == 2
 string_types = None
@@ -14,6 +19,20 @@ if PY2:
     text_type = unicode
 else:
     string_types = text_type = str
+
+
+def is_number(value):
+    """Test if an object is a number.
+    :param value: some object
+    :return: True
+    :raises: ValueError
+    """
+    try:
+        float(value)
+    except (ValueError, TypeError):
+        raise ValueError
+
+    return True
 
 
 def remove_animations_of(group, target):
@@ -36,10 +55,17 @@ class Task(pygame.sprite.Sprite):
     delayed or looping events without any complicated hooks into
     pygame's clock or event loop.
 
+    Tasks are created and must be added to a normal pygame group
+    in order to function.  This group must be updated, but not
+    drawn.
+
+        task_group = pygame.sprite.Group()
+
         # like a delay
         def call_later():
             pass
         task = Task(call_later, 1000)
+        task_group.add(task)
 
         # do something 24 times at 1 second intervals
         task = Task(call_later, 1000, 24)
@@ -53,11 +79,17 @@ class Task(pygame.sprite.Sprite):
         # chain tasks
         task = Task(call_later, 2500)
         task.chain(Task(something_else))
+
+        When chaining tasks, do not add the chained tasks to a group.
     """
 
     def __init__(self, callback, interval=0, loops=1, args=None, kwargs=None):
-        assert (callable(callback))
-        assert (loops >= -1)
+        if not callable(callback):
+            raise ValueError
+
+        if loops < 1:
+            raise ValueError
+
         super(Task, self).__init__()
         self.interval = interval
         self.loops = loops
@@ -67,6 +99,7 @@ class Task(pygame.sprite.Sprite):
         self._kwargs = kwargs if kwargs else dict()
         self._loops = loops
         self._chain = list()
+        self._state = ANIMATION_RUNNING
 
     def chain(self, *others):
         """Schedule Task(s) to execute when this one is finished
@@ -77,11 +110,13 @@ class Task(pygame.sprite.Sprite):
         :param others: Task instances
         :return: None
         """
-        if self._loops == -1:
+        if self._loops <= -1:
             raise ValueError
         for task in others:
-            assert isinstance(task, Task)
+            if not isinstance(task, Task):
+                raise TypeError
             self._chain.append(task)
+        return others
 
     def update(self, dt):
         """Update the Task
@@ -89,8 +124,15 @@ class Task(pygame.sprite.Sprite):
         The unit of time passed must match the one used in the
         constructor.
 
+        Task will not 'make up for lost time'.  If an interval
+        was skipped because of a lagging clock, then callbacks
+        will not be made to account for the missed ones.
+
         :param dt: Time passed since last update.
         """
+        if self._state is not ANIMATION_RUNNING:
+            raise RuntimeError
+
         self._timer += dt
         if self._timer >= self.interval:
             self._timer -= self.interval
@@ -99,8 +141,14 @@ class Task(pygame.sprite.Sprite):
                 self._loops -= 1
                 if self._loops <= 0:
                     self._execute_chain()
-                    self._chain = None
-                    self.kill()
+                    self.abort()
+
+    def abort(self):
+        """Force task to finish, without executing callbacks
+        """
+        self._state = ANIMATION_FINISHED
+        self._chain = None
+        self.kill()
 
     def _execute_chain(self):
         groups = self.groups()
@@ -117,6 +165,10 @@ class Animation(pygame.sprite.Sprite):
     target as the only parameter.
         ani = Animation(x=100, y=100, duration=1000)
         ani.start(sprite)
+
+    If you would rather specify relative values, then pass the
+    relative keyword and the values will be adjusted for you:
+        ani = Animation(x=100, y=100, duration=1000, relative=True)
 
     You can also specify a callback that will be executed when the
     animation finishes:
@@ -163,15 +215,17 @@ class Animation(pygame.sprite.Sprite):
     'round_values=True' to the constructor to avoid jitter caused
     by integer truncation.
     """
+    default_duration = 1000.
+    default_transition = 'linear'
 
     def __init__(self, **kwargs):
         super(Animation, self).__init__()
         self.targets = None
         self.delay = kwargs.get('delay', 0)
-        self._started = False
+        self._state = ANIMATION_NOT_STARTED
         self._round_values = kwargs.get('round_values', False)
-        self._duration = float(kwargs.get('duration', 1000.))
-        self._transition = kwargs.get('transition', 'linear')
+        self._duration = float(kwargs.get('duration', self.default_duration))
+        self._transition = kwargs.get('transition', self.default_transition)
         self._initial = kwargs.get('initial', None)
         if isinstance(self._transition, string_types):
             self._transition = getattr(AnimationTransition, self._transition)
@@ -179,6 +233,8 @@ class Animation(pygame.sprite.Sprite):
         for key in ('duration', 'transition', 'round_values', 'delay',
                     'initial'):
             kwargs.pop(key, None)
+        if not kwargs:
+            raise ValueError
         self.props = kwargs
 
     def _get_value(self, target, name):
@@ -192,18 +248,20 @@ class Animation(pygame.sprite.Sprite):
             attr = getattr(target, name)
             if callable(attr):
                 value = attr()
-                if value is None:
-                    return 0
+                is_number(value)
+                return 0 if value is None else value
             else:
-                return getattr(target, name)
+                is_number(attr)
+                return attr
         else:
             if callable(self._initial):
-                return self._initial()
+                value = self._initial()
+                is_number(value)
+                return value
             else:
                 return self._initial
 
-    @staticmethod
-    def _set_value(target, name, value):
+    def _set_value(self, target, name, value):
         """Set a value on some other object
 
         If the name references a callable type, then
@@ -220,6 +278,9 @@ class Animation(pygame.sprite.Sprite):
         :param value: value
         :return: None
         """
+        if self._round_values:
+            value = int(round(value, 0))
+
         attr = getattr(target, name)
         if callable(attr):
             attr(value)
@@ -233,7 +294,11 @@ class Animation(pygame.sprite.Sprite):
         constructor.
 
         :param dt: Time passed since last update.
+        :raises: RuntimeError
         """
+        if self._state is not ANIMATION_RUNNING:
+            raise RuntimeError
+
         self._elapsed += dt
         if self.delay > 0:
             if self._elapsed < self.delay:
@@ -241,6 +306,7 @@ class Animation(pygame.sprite.Sprite):
             else:
                 self._elapsed -= self.delay
                 self.delay = 0
+                return
 
         p = min(1., self._elapsed / self._duration)
         t = self._transition(p)
@@ -248,10 +314,6 @@ class Animation(pygame.sprite.Sprite):
             for name, values in props.items():
                 a, b = values
                 value = (a * (1. - t)) + (b * t)
-
-                if self._round_values:
-                    value = int(round(value))
-
                 self._set_value(target, name, value)
 
         if hasattr(self, 'update_callback'):
@@ -263,10 +325,17 @@ class Animation(pygame.sprite.Sprite):
     def finish(self):
         """Force the animation to finish
 
+        Update callback will be called because the value is changed
+        Final callback ('callback') will be called
+
         Final values will be applied
 
         :return: None
+        :raises: RuntimeError
         """
+        if self._state is not ANIMATION_RUNNING:
+            raise RuntimeError
+
         if self.targets is not None:
             for target, props in self.targets:
                 for name, values in props.items():
@@ -276,6 +345,21 @@ class Animation(pygame.sprite.Sprite):
         if hasattr(self, 'update_callback'):
             self.update_callback()
 
+        self.abort()
+
+    def abort(self):
+        """Force animation to finish
+
+        final callback will be called
+        values will not change
+
+        :return: None
+        :raises: RuntimeError
+        """
+        if self._state is not ANIMATION_RUNNING:
+            raise RuntimeError
+
+        self._state = ANIMATION_FINISHED
         self.targets = None
         self.kill()
         if hasattr(self, 'callback'):
@@ -288,289 +372,18 @@ class Animation(pygame.sprite.Sprite):
         this animation was created.
 
         :param target: Any valid python object
+        :raises: RuntimeError
         """
+        # TODO: multiple targets
+        # TODO: weakref the targets
+        if self._state is not ANIMATION_NOT_STARTED:
+            raise RuntimeError
+
+        self._state = ANIMATION_RUNNING
         self.targets = [(target, dict())]
         for target, props in self.targets:
             for name, value in self.props.items():
                 initial = self._get_value(target, name)
+                is_number(initial)
+                is_number(value)
                 props[name] = initial, value
-
-
-class AnimationTransition(object):
-    """Collection of animation functions to be used with the Animation object.
-    Easing Functions ported to Kivy from the Clutter Project
-    http://www.clutter-project.org/docs/clutter/stable/ClutterAlpha.html
-
-    The `progress` parameter in each animation function is in the range 0-1.
-    """
-
-    @staticmethod
-    def linear(progress):
-        """.. image:: images/anim_linear.png"""
-        return progress
-
-    @staticmethod
-    def in_quad(progress):
-        """.. image:: images/anim_in_quad.png
-        """
-        return progress * progress
-
-    @staticmethod
-    def out_quad(progress):
-        """.. image:: images/anim_out_quad.png
-        """
-        return -1.0 * progress * (progress - 2.0)
-
-    @staticmethod
-    def in_out_quad(progress):
-        """.. image:: images/anim_in_out_quad.png
-        """
-        p = progress * 2
-        if p < 1:
-            return 0.5 * p * p
-        p -= 1.0
-        return -0.5 * (p * (p - 2.0) - 1.0)
-
-    @staticmethod
-    def in_cubic(progress):
-        """.. image:: images/anim_in_cubic.png
-        """
-        return progress * progress * progress
-
-    @staticmethod
-    def out_cubic(progress):
-        """.. image:: images/anim_out_cubic.png
-        """
-        p = progress - 1.0
-        return p * p * p + 1.0
-
-    @staticmethod
-    def in_out_cubic(progress):
-        """.. image:: images/anim_in_out_cubic.png
-        """
-        p = progress * 2
-        if p < 1:
-            return 0.5 * p * p * p
-        p -= 2
-        return 0.5 * (p * p * p + 2.0)
-
-    @staticmethod
-    def in_quart(progress):
-        """.. image:: images/anim_in_quart.png
-        """
-        return progress * progress * progress * progress
-
-    @staticmethod
-    def out_quart(progress):
-        """.. image:: images/anim_out_quart.png
-        """
-        p = progress - 1.0
-        return -1.0 * (p * p * p * p - 1.0)
-
-    @staticmethod
-    def in_out_quart(progress):
-        """.. image:: images/anim_in_out_quart.png
-        """
-        p = progress * 2
-        if p < 1:
-            return 0.5 * p * p * p * p
-        p -= 2
-        return -0.5 * (p * p * p * p - 2.0)
-
-    @staticmethod
-    def in_quint(progress):
-        """.. image:: images/anim_in_quint.png
-        """
-        return progress * progress * progress * progress * progress
-
-    @staticmethod
-    def out_quint(progress):
-        """.. image:: images/anim_out_quint.png
-        """
-        p = progress - 1.0
-        return p * p * p * p * p + 1.0
-
-    @staticmethod
-    def in_out_quint(progress):
-        """.. image:: images/anim_in_out_quint.png
-        """
-        p = progress * 2
-        if p < 1:
-            return 0.5 * p * p * p * p * p
-        p -= 2.0
-        return 0.5 * (p * p * p * p * p + 2.0)
-
-    @staticmethod
-    def in_sine(progress):
-        """.. image:: images/anim_in_sine.png
-        """
-        return -1.0 * cos(progress * (pi / 2.0)) + 1.0
-
-    @staticmethod
-    def out_sine(progress):
-        """.. image:: images/anim_out_sine.png
-        """
-        return sin(progress * (pi / 2.0))
-
-    @staticmethod
-    def in_out_sine(progress):
-        """.. image:: images/anim_in_out_sine.png
-        """
-        return -0.5 * (cos(pi * progress) - 1.0)
-
-    @staticmethod
-    def in_expo(progress):
-        """.. image:: images/anim_in_expo.png
-        """
-        if progress == 0:
-            return 0.0
-        return pow(2, 10 * (progress - 1.0))
-
-    @staticmethod
-    def out_expo(progress):
-        """.. image:: images/anim_out_expo.png
-        """
-        if progress == 1.0:
-            return 1.0
-        return -pow(2, -10 * progress) + 1.0
-
-    @staticmethod
-    def in_out_expo(progress):
-        """.. image:: images/anim_in_out_expo.png
-        """
-        if progress == 0:
-            return 0.0
-        if progress == 1.:
-            return 1.0
-        p = progress * 2
-        if p < 1:
-            return 0.5 * pow(2, 10 * (p - 1.0))
-        p -= 1.0
-        return 0.5 * (-pow(2, -10 * p) + 2.0)
-
-    @staticmethod
-    def in_circ(progress):
-        """.. image:: images/anim_in_circ.png
-        """
-        return -1.0 * (sqrt(1.0 - progress * progress) - 1.0)
-
-    @staticmethod
-    def out_circ(progress):
-        """.. image:: images/anim_out_circ.png
-        """
-        p = progress - 1.0
-        return sqrt(1.0 - p * p)
-
-    @staticmethod
-    def in_out_circ(progress):
-        """.. image:: images/anim_in_out_circ.png
-        """
-        p = progress * 2
-        if p < 1:
-            return -0.5 * (sqrt(1.0 - p * p) - 1.0)
-        p -= 2.0
-        return 0.5 * (sqrt(1.0 - p * p) + 1.0)
-
-    @staticmethod
-    def in_elastic(progress):
-        """.. image:: images/anim_in_elastic.png
-        """
-        p = .3
-        s = p / 4.0
-        q = progress
-        if q == 1:
-            return 1.0
-        q -= 1.0
-        return -(pow(2, 10 * q) * sin((q - s) * (2 * pi) / p))
-
-    @staticmethod
-    def out_elastic(progress):
-        """.. image:: images/anim_out_elastic.png
-        """
-        p = .3
-        s = p / 4.0
-        q = progress
-        if q == 1:
-            return 1.0
-        return pow(2, -10 * q) * sin((q - s) * (2 * pi) / p) + 1.0
-
-    @staticmethod
-    def in_out_elastic(progress):
-        """.. image:: images/anim_in_out_elastic.png
-        """
-        p = .3 * 1.5
-        s = p / 4.0
-        q = progress * 2
-        if q == 2:
-            return 1.0
-        if q < 1:
-            q -= 1.0
-            return -.5 * (pow(2, 10 * q) * sin((q - s) * (2.0 * pi) / p))
-        else:
-            q -= 1.0
-            return pow(2, -10 * q) * sin((q - s) * (2.0 * pi) / p) * .5 + 1.0
-
-    @staticmethod
-    def in_back(progress):
-        """.. image:: images/anim_in_back.png
-        """
-        return progress * progress * ((1.70158 + 1.0) * progress - 1.70158)
-
-    @staticmethod
-    def out_back(progress):
-        """.. image:: images/anim_out_back.png
-        """
-        p = progress - 1.0
-        return p * p * ((1.70158 + 1) * p + 1.70158) + 1.0
-
-    @staticmethod
-    def in_out_back(progress):
-        """.. image:: images/anim_in_out_back.png
-        """
-        p = progress * 2.
-        s = 1.70158 * 1.525
-        if p < 1:
-            return 0.5 * (p * p * ((s + 1.0) * p - s))
-        p -= 2.0
-        return 0.5 * (p * p * ((s + 1.0) * p + s) + 2.0)
-
-    @staticmethod
-    def _out_bounce_internal(t, d):
-        p = t / d
-        if p < (1.0 / 2.75):
-            return 7.5625 * p * p
-        elif p < (2.0 / 2.75):
-            p -= (1.5 / 2.75)
-            return 7.5625 * p * p + .75
-        elif p < (2.5 / 2.75):
-            p -= (2.25 / 2.75)
-            return 7.5625 * p * p + .9375
-        else:
-            p -= (2.625 / 2.75)
-            return 7.5625 * p * p + .984375
-
-    @staticmethod
-    def _in_bounce_internal(t, d):
-        return 1.0 - AnimationTransition._out_bounce_internal(d - t, d)
-
-    @staticmethod
-    def in_bounce(progress):
-        """.. image:: images/anim_in_bounce.png
-        """
-        return AnimationTransition._in_bounce_internal(progress, 1.)
-
-    @staticmethod
-    def out_bounce(progress):
-        """.. image:: images/anim_out_bounce.png
-        """
-        return AnimationTransition._out_bounce_internal(progress, 1.)
-
-    @staticmethod
-    def in_out_bounce(progress):
-        """.. image:: images/anim_in_out_bounce.png
-        """
-        p = progress * 2.
-        if p < 1.:
-            return AnimationTransition._in_bounce_internal(p, 1.) * .5
-        return AnimationTransition._out_bounce_internal(p - 1., 1.) * .5 + .5
-
