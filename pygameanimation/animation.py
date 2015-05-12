@@ -168,7 +168,8 @@ class Animation(pygame.sprite.Sprite):
 
     If you would rather specify relative values, then pass the
     relative keyword and the values will be adjusted for you:
-        ani = Animation(x=100, y=100, duration=1000, relative=True)
+        ani = Animation(x=100, y=100, duration=1000)
+        ani.start(sprite, relative=True)
 
     You can also specify a callback that will be executed when the
     animation finishes:
@@ -365,7 +366,7 @@ class Animation(pygame.sprite.Sprite):
         if hasattr(self, 'callback'):
             self.callback()
 
-    def start(self, target):
+    def start(self, target, **kwargs):
         """Start the animation on a target sprite/object
 
         Targets must have the attributes that were set when
@@ -382,8 +383,11 @@ class Animation(pygame.sprite.Sprite):
         self._state = ANIMATION_RUNNING
         self.targets = [(target, dict())]
         for target, props in self.targets:
+            relative = kwargs.get('relative', False)
             for name, value in self.props.items():
                 initial = self._get_value(target, name)
                 is_number(initial)
                 is_number(value)
+                if relative:
+                    value += initial
                 props[name] = initial, value

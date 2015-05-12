@@ -108,6 +108,13 @@ class TestAnimation(TestCase):
         self.simulate(a, 25)
         self.assertEqual(self.mock.value, 1)
 
+    def test_relative_values(self):
+        a = Animation(value=1)
+        self.mock.value = 1
+        a.start(self.mock, relative=True)
+        a.finish()
+        self.assertEqual(self.mock.value, 2)
+
     def test_start_will_not_set_values(self):
         """ verify that the animation will not change values at start
         """
