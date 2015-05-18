@@ -181,10 +181,10 @@ class Animation(pygame.sprite.Sprite):
 
     Animations must be added to a sprite group in order for them
     to be updated.  If the sprite group that contains them is
-    drawn, then an exception will be raised, so you should create
+    drawn then an exception will be raised, so you should create
     a sprite group only for containing Animations.
 
-    You can cancel the animation by calling Animation.kill().
+    You can cancel the animation by calling Animation.abort().
 
     When the Animation has finished, then it will remove itself
     from the sprite group that contains it.
@@ -221,7 +221,7 @@ class Animation(pygame.sprite.Sprite):
 
     def __init__(self, **kwargs):
         super(Animation, self).__init__()
-        self.targets = None
+        self.targets = list()
         self.delay = kwargs.get('delay', 0)
         self._state = ANIMATION_NOT_STARTED
         self._round_values = kwargs.get('round_values', False)
@@ -246,21 +246,15 @@ class Animation(pygame.sprite.Sprite):
         :return: Any
         """
         if self._initial is None:
-            attr = getattr(target, name)
-            if callable(attr):
-                value = attr()
-                is_number(value)
-                return 0 if value is None else value
-            else:
-                is_number(attr)
-                return attr
+            value = getattr(target, name)
         else:
-            if callable(self._initial):
-                value = self._initial()
-                is_number(value)
-                return value
-            else:
-                return self._initial
+            value = self._initial
+
+        if callable(value):
+            value = value()
+
+        is_number(value)
+        return value
 
     def _set_value(self, target, name, value):
         """Set a value on some other object
@@ -294,20 +288,27 @@ class Animation(pygame.sprite.Sprite):
         The unit of time passed must match the one used in the
         constructor.
 
+        Make sure that you start the animation, otherwise your
+        animation will not be changed during update().
+
+        Will raise RuntimeError if animation is updated after
+        it has finished.
+
         :param dt: Time passed since last update.
         :raises: RuntimeError
         """
-        if self._state is not ANIMATION_RUNNING:
+        if self._state is ANIMATION_FINISHED:
             raise RuntimeError
+
+        if self._state is not ANIMATION_RUNNING:
+            return
 
         self._elapsed += dt
         if self.delay > 0:
-            if self._elapsed < self.delay:
-                return
-            else:
+            if self._elapsed > self.delay:
                 self._elapsed -= self.delay
                 self.delay = 0
-                return
+            return
 
         p = min(1., self._elapsed / self._duration)
         t = self._transition(p)
@@ -324,12 +325,14 @@ class Animation(pygame.sprite.Sprite):
             self.finish()
 
     def finish(self):
-        """Force the animation to finish
+        """Force animation to finish, apply transforms, and execute callbacks
 
         Update callback will be called because the value is changed
         Final callback ('callback') will be called
-
         Final values will be applied
+        Animation will be removed from group
+
+        Will raise RuntimeError if animation has not been started
 
         :return: None
         :raises: RuntimeError
@@ -349,10 +352,14 @@ class Animation(pygame.sprite.Sprite):
         self.abort()
 
     def abort(self):
-        """Force animation to finish
+        """Force animation to finish, without any cleanup
 
-        final callback will be called
-        values will not change
+        Update callback will not be executed
+        Final callback will be executed
+        Values will not change
+        Animation will be removed from group
+
+        Will raise RuntimeError if animation has not been started
 
         :return: None
         :raises: RuntimeError
