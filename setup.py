@@ -4,11 +4,11 @@
 from setuptools import setup
 
 setup(name="pygame-animation",
-      version="0.0.2",
+      version="0.0.3",
       description="PyGame Animation and Tweening Library",
       author="bitcraft",
       author_email="",
-      packages=['pygameanimation'],
+      packages=['animation'],
       license="GPLv3",
       url="https://github.com/bitcraft/animation",
       download_url="",

@@ -3,8 +3,8 @@ from unittest import TestCase, skip
 from pygame.sprite import Group
 from mock import Mock
 
-from pygameanimation import Animation, Task, remove_animations_of
-from pygameanimation.animation import is_number
+from animation import Animation, Task, remove_animations_of
+from animation.animation import is_number
 
 
 class TestObject:
