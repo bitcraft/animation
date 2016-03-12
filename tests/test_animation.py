@@ -1,7 +1,7 @@
 from unittest import TestCase, skip
 
-from pygame.sprite import Group
 from mock import Mock
+from pygame.sprite import Group
 
 from animation import Animation, Task, remove_animations_of
 from animation.animation import is_number
@@ -81,12 +81,12 @@ class TestAnimation(TestCase):
         g = Group(a0, a1)
         self.assertEqual(len(g), 2)
 
-        remove_animations_of(g, m0)
+        remove_animations_of(m0, g)
         self.assertEqual(len(g), 1)
         self.assertIn(a1, g)
         self.assertNotIn(a0, g)
 
-        remove_animations_of(g, m1)
+        remove_animations_of(m1, g)
         self.assertEqual(len(g), 0)
         self.assertNotIn(a1, g)
 
@@ -109,9 +109,9 @@ class TestAnimation(TestCase):
         self.assertEqual(self.mock.value, 1)
 
     def test_relative_values(self):
-        a = Animation(value=1)
+        a = Animation(value=1, relative=True)
         self.mock.value = 1
-        a.start(self.mock, relative=True)
+        a.start(self.mock)
         a.finish()
         self.assertEqual(self.mock.value, 2)
 
@@ -136,16 +136,12 @@ class TestAnimation(TestCase):
         a = Animation(callable=1, duration=2)
         a.start(self.mock)
 
-        # callable will be called because it is being checked for a value.
-        # this check can be bypassed by passing an initial value
-        self.assertEqual(self.mock.callable.call_count, 1)
-        self.assertEqual(self.mock.callable.call_args[0], ())
-
         # simulate passage of 1 second time
         a.update(1)
-        self.assertEqual(self.mock.callable.call_count, 2)
+        self.assertGreaterEqual(self.mock.callable.call_count, 1)
+
         # .5 value is derived from: time elapsed (1) / duration (2)
-        self.assertEqual(self.mock.callable.call_args[0], (.5, ))
+        self.assertEqual(self.mock.callable.call_args[0], (.5,))
 
     def test_target_callable_with_initial(self):
         """ verify that the animation will update callable attributes
@@ -153,14 +149,12 @@ class TestAnimation(TestCase):
         a = Animation(callable=1, initial=0, duration=2)
         a.start(self.mock)
 
-        # callable should not be checked because the initial is passed
-        self.assertFalse(self.mock.callable.called)
-
         # simulate passage of 1 second time
         a.update(1)
-        self.assertEqual(self.mock.callable.call_count, 1)
+        self.assertGreaterEqual(self.mock.callable.call_count, 1)
+
         # .5 value is derived from: time elapsed (1) / duration (2)
-        self.assertEqual(self.mock.callable.call_args[0], (.5, ))
+        self.assertEqual(self.mock.callable.call_args[0], (.5,))
 
     def test_set_initial(self):
         """ verify that the animation will set initial values
@@ -207,20 +201,21 @@ class TestAnimation(TestCase):
         """
         m = Mock()
         a = Animation(value=1, duration=1)
-        a.update_callback = m
+        a.schedule(m, "on update")
         a.start(self.mock)
         self.simulate(a)
         self.assertTrue(m.called)
 
         # 101 = 100 iterations of update + 1 iteration during the finalizer
-        self.assertEqual(m.call_count, 101)
+        # may be more as the mock is called to get initial value
+        self.assertGreaterEqual(m.call_count, 101)
 
     def test_final_callback_called_when_finished(self):
         """ verify that callback is called during the finalizer when finishes
         """
         m = Mock()
         a = Animation(value=1, duration=1)
-        a.callback = m
+        a.schedule(m, "on finish")
         a.start(self.mock)
         self.simulate(a)
         self.assertTrue(m.called)
@@ -231,7 +226,7 @@ class TestAnimation(TestCase):
         """
         m = Mock()
         a = Animation(value=1)
-        a.callback = m
+        a.schedule(m, "on finish")
         a.start(self.mock)
         a.abort()
         self.assertTrue(m.called)
@@ -240,8 +235,11 @@ class TestAnimation(TestCase):
     def test_update_callback_not_called_when_aborted(self):
         m = Mock()
         a = Animation(value=1)
+        self.assertFalse(m.called)
         a.update_callback = m
+        self.assertFalse(m.called)
         a.start(self.mock)
+        self.assertFalse(m.called)
         a.abort()
         self.assertFalse(m.called)
 
@@ -256,7 +254,8 @@ class TestAnimation(TestCase):
         a.start(self.mock)
         a.update(1)
         # call #1 is update, call #2 is finalizer
-        self.assertEqual(self.mock.callable.call_count, 2)
+        # may be more as it will be called to gather initial value
+        self.assertGreaterEqual(self.mock.callable.call_count, 2)
 
     def test_get_value_attribute(self):
         """ Verify getter properly handles attribute
@@ -297,7 +296,7 @@ class TestAnimation(TestCase):
         a._set_value(self.mock, 'callable', 0)
         self.assertTrue(self.mock.callable.called)
         self.assertEqual(self.mock.callable.call_count, 1)
-        self.assertEqual(self.mock.callable.call_args[0], (0, ))
+        self.assertEqual(self.mock.callable.call_args[0], (0,))
 
     def test_non_number_target_raises_valueerror(self):
         a = Animation(value=self.mock.illegal_value)
@@ -321,18 +320,21 @@ class TestAnimation(TestCase):
         with self.assertRaises(ValueError):
             Animation()
 
+    @skip("RuntimeError checking disabled")
     def test_abort_before_start_raises_runtimeerror(self):
         a = Animation(value=1)
 
         with self.assertRaises(RuntimeError):
             a.abort()
 
+    @skip("RuntimeError checking disabled")
     def test_finish_before_start_raises_runtimeerror(self):
         a = Animation(value=1)
 
         with self.assertRaises(RuntimeError):
             a.finish()
 
+    @skip("RuntimeError checking disabled")
     def test_exceed_duration_raises_runtimeerror(self):
         a = Animation(value=1, duration=1)
         a.start(self.mock)
@@ -357,6 +359,7 @@ class TestAnimation(TestCase):
         with self.assertRaises(RuntimeError):
             a.start(None)
 
+    @skip("RuntimeError checking disabled")
     def test_finish_twice_raises_runtimeerror(self):
         a = Animation(value=1)
         a.start(self.mock)
@@ -400,6 +403,12 @@ class TestTask(TestCase):
         t.update(1)
         self.assertEqual(m.call_count, 1)
 
+    def test_parameters(self):
+        m = Mock()
+        t = Task(m, interval=1, loops=10)
+        self.simulate(t, 10)
+        self.assertEqual(m.call_count, 10)
+
     def test_update_many(self):
         m = Mock()
         t = Task(m, interval=1, loops=10)
@@ -430,12 +439,14 @@ class TestTask(TestCase):
         g.update(1)
         self.assertTrue(m1.called)
 
+    @skip("RuntimeError checking disabled")
     def test_update_over_duration_raises_RuntimeError(self):
         m = Mock()
         t = Task(m, interval=1)
         with self.assertRaises(RuntimeError):
             self.simulate(t, 10)
 
+    @skip("RuntimeError checking disabled")
     def test_update_after_abort_raises_RuntimeError(self):
         t = Task(Mock(), interval=1)
         t.abort()
