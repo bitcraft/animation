@@ -140,7 +140,7 @@ class Task(AnimBase):
 
         When chaining tasks, do not add the chained tasks to a group.
     """
-    _valid_schedules = ('on finish', 'on abort')
+    _valid_schedules = ('on interval', 'on finish', 'on abort')
 
     def __init__(self, callback, interval=0, times=1):
         if not callable(callback):
@@ -193,19 +193,21 @@ class Task(AnimBase):
         self._duration += dt
         if self._duration >= self._interval:
             self._duration -= self._interval
-            if not self._loops == -1:
+            if self._loops >= 0:
                 self._loops -= 1
-                if self._loops <= 0:
+                if self._loops == 0:
                     self.finish()
-                    return
-
-            self._execute_callbacks("on finish")
+                else:    # not finished, but still are iterations left
+                    self._execute_callbacks("on interval")
+            else:   # loops == -1, run forever
+                self._execute_callbacks("on interval")
 
     def finish(self):
         """ Force task to finish, while executing callbacks
         """
         if self._state is ANIMATION_RUNNING:
             self._state = ANIMATION_FINISHED
+            self._execute_callbacks("on interval")
             self._execute_callbacks("on finish")
             self._execute_chain()
             self._cleanup()

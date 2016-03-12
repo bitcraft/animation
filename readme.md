@@ -95,6 +95,17 @@ task.schedule(partial(call_later(1,2,3, key=value)), 1000)
 ```
 
 
+There are other useful ways to schedule with a Task:
+
+```python
+# Task that does my_function 10x with 1 second interval
+task = Task(my_function, 1000, 10)
+
+# "quit" will be called after the 10th time (when task is totally finished)
+task.schedule(quit, 'on finish')
+```
+
+
 Tasks support simple sequencing.  Use the chain method to
 create a sequence of tasks.  Chained events will begin after
 the task has finished.  Chaining can be useful if tasks are
