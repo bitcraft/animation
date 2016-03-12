@@ -32,6 +32,15 @@ class TestAnimation(TestCase):
     def setUp(self):
         self.mock = TestObject()
 
+    def test_default_schedule_is_finish(self):
+        m = Mock()
+        a = Animation(value=1, duration=1)
+        a.schedule(m)
+        a.start(self.mock)
+        self.simulate(a)
+        self.assertTrue(m.called)
+        self.assertEqual(m.call_count, 1)
+
     def test_is_number_int(self):
         self.assertTrue(is_number(1))
         self.assertTrue(is_number('1'))
@@ -386,16 +395,20 @@ class TestTask(TestCase):
             elapsed += step
             object_.update(step)
 
+    def test_schedule_default_is_finish(self):
+        m = Mock()
+        t = Task(Mock(), interval=1)
+        t.schedule(m)
+        t.update(1)
+        self.assertEqual(m.call_count, 1)
+
+    def test_zero_times_raises_AssertionError(self):
+        with self.assertRaises(ValueError):
+            Task(Mock(), times=0)
+
     def test_not_callable_rases_AssertionError(self):
         with self.assertRaises(ValueError):
             Task(None)
-
-    def test_zero_or_negative_loops_reaises_AssertionError(self):
-        with self.assertRaises(ValueError):
-            Task(Mock(), loops=0)
-
-        with self.assertRaises(ValueError):
-            Task(Mock(), loops=-1)
 
     def test_update_once(self):
         m = Mock()
@@ -405,14 +418,14 @@ class TestTask(TestCase):
 
     def test_parameters(self):
         m = Mock()
-        t = Task(m, interval=1, loops=10)
-        self.simulate(t, 10)
+        t = Task(m, interval=1, times=10)
+        self.simulate(t, 15)
         self.assertEqual(m.call_count, 10)
 
     def test_update_many(self):
         m = Mock()
-        t = Task(m, interval=1, loops=10)
-        self.simulate(t, 10)
+        t = Task(m, interval=1, times=10)
+        self.simulate(t, 15)
         self.assertEqual(m.call_count, 10)
 
     def test_abort_does_not_callback(self):

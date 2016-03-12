@@ -44,12 +44,13 @@ def remove_animations_of(target, group):
 
     :param target: any
     :param group: pygame.sprite.Group
-    :returns: None
+    :returns: list of animations that were removed
     """
     animations = [ani for ani in group.sprites() if isinstance(ani, Animation)]
     to_remove = [ani for ani in animations
                  if target in [i[0] for i in ani.targets]]
     group.remove(*to_remove)
+    return to_remove
 
 
 class AnimBase(pygame.sprite.Sprite):
@@ -59,7 +60,7 @@ class AnimBase(pygame.sprite.Sprite):
         super(AnimBase, self).__init__()
         self._callbacks = defaultdict(list)
 
-    def schedule(self, func, when):
+    def schedule(self, func, when=None):
         """ Schedule a callback during operation of Task or Animation
 
         The callback is any callable object.  You can specify different
@@ -69,10 +70,15 @@ class AnimBase(pygame.sprite.Sprite):
         * "on finish": called when the Task/Animation completes normally
         * "on abort": called if the Task/Animation is aborted
 
+        If when is not passed, it will be "on finish":
+
         :type func: callable
         :type when: basestring
         :return:
         """
+        if when is None:
+            when = self._valid_schedules[0]
+
         if when not in self._valid_schedules:
             print('invalid time to schedule a callback')
             print('valid:', self._valid_schedules)
@@ -99,9 +105,12 @@ class Task(AnimBase):
     in order to function.  This group must be updated, but not
     drawn.
 
+    Setting the interval to 0 cause the callback to be called
+    on the next update.
+
     Because the pygame clock returns milliseconds, the examples
     below use milliseconds.  However, you are free to use what-
-    ever time unit you wish, as long as it is used consconsistently
+    ever time unit you wish, as long as it is used consistently
 
         task_group = pygame.sprite.Group()
 
@@ -133,20 +142,20 @@ class Task(AnimBase):
     """
     _valid_schedules = ('on finish', 'on abort')
 
-    def __init__(self, callback, interval=0, loops=1):
+    def __init__(self, callback, interval=0, times=1):
         if not callable(callback):
             raise ValueError
 
-        if loops < 1:
+        if times == 0:
             raise ValueError
 
         super(Task, self).__init__()
         self._interval = interval
-        self._loops = loops
+        self._loops = times
         self._duration = 0
         self._chain = list()
         self._state = ANIMATION_RUNNING
-        self.schedule(callback, "on finish")
+        self.schedule(callback)
 
     def chain(self, *others):
         """ Schedule Task(s) to execute when this one is finished
@@ -279,7 +288,7 @@ class Animation(AnimBase):
     The 'round_values' parameter will be set to True automatically
     if pygame rects are used as an animation target.
     """
-    _valid_schedules = ('on update', 'on finish', 'on abort')
+    _valid_schedules = ('on finish', 'on update')
     default_duration = 1000.
     default_transition = 'linear'
 
@@ -326,7 +335,6 @@ class Animation(AnimBase):
         if callable(value):
             value = value()
 
-        is_number(value)
         return value
 
     def _set_value(self, target, name, value):
@@ -354,6 +362,23 @@ class Animation(AnimBase):
             attr(value)
         else:
             setattr(target, name, value)
+
+    def _gather_initial_values(self):
+        self._targets = list()
+        for target in self._pre_targets:
+            props = dict()
+            if isinstance(target, pygame.Rect):
+                self._round_values = True
+            for name, value in self.props.items():
+                initial = self._get_value(target, name)
+                is_number(initial)
+                is_number(value)
+                if self._relative:
+                    value += initial
+                props[name] = initial, value
+            self._targets.append((target, props))
+
+        self.update(0)  # required to 'prime' initial values of callable targets
 
     def update(self, dt):
         """ Update the animation
@@ -446,7 +471,6 @@ class Animation(AnimBase):
         self._targets = None
         self.kill()
         self._execute_callbacks("on finish")
-        self._execute_callbacks("on abort")
 
     def start(self, *targets):
         """ Start the animation on a target sprite/object
@@ -467,19 +491,3 @@ class Animation(AnimBase):
         if self._delay == 0:
             self._gather_initial_values()
 
-    def _gather_initial_values(self):
-        self._targets = list()
-        for target in self._pre_targets:
-            props = dict()
-            if isinstance(target, pygame.Rect):
-                self._round_values = True
-            for name, value in self.props.items():
-                initial = self._get_value(target, name)
-                is_number(initial)
-                is_number(value)
-                if self._relative:
-                    value += initial
-                props[name] = initial, value
-            self._targets.append((target, props))
-
-        self.update(0)
